@@ -141,12 +141,25 @@ node_already_visited(Node, Edges) :-
     memberchk(edge(_, _, Node,Visited), Edges),
     ground(Visited).
 
+disconnected_edges(Edges, Disconnecteds) :-
+    findall(Disconnected,
+            (
+                member(edge(S, forward(P), O, Visited), Edges),
+                var(Visited),
+                Disconnected = edge(S, P, O)
+            ),
+            Disconnecteds).
+
 sparql_ast(Query, Ast) :-
     sparql_edges(Query, Edges),
     Edges = [edge(Root, _, _, _)|_],
     print_term(Root, []),
     visit_edges(Root, Edges, Dict_1),
-    visit_var_children(Dict_1, Edges, Ast).
+    visit_var_children(Dict_1, Edges, Ast),
+    disconnected_edges(Edges, Disconnecteds),
+    (   length(Disconnecteds, 0)
+    ->  true
+    ;   throw(error(disconnected_edges(Disconnecteds), _))).
 
 :- begin_tests(sparql_pattern_match).
 test(match_node) :-
