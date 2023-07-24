@@ -2,6 +2,10 @@
 :- use_module(library(pcre)).
 :- use_module(library(plunit)).
 
+compress_schema(Uri, Prefixes, Result) :-
+    get_dict('@schema', Prefixes, Schema),
+    atom_concat(Schema, Result, Uri).
+
 node_expression('<[^>]+>').
 group_node_expression('<([^>]+)>').
 
@@ -153,13 +157,60 @@ disconnected_edges(Edges, Disconnecteds) :-
 sparql_ast(Query, Ast) :-
     sparql_edges(Query, Edges),
     Edges = [edge(Root, _, _, _)|_],
-    print_term(Root, []),
     visit_edges(Root, Edges, Dict_1),
     visit_var_children(Dict_1, Edges, Ast),
     disconnected_edges(Edges, Disconnecteds),
     (   length(Disconnecteds, 0)
     ->  true
     ;   throw(error(disconnected_edges(Disconnecteds), _))).
+
+ast_graphql(Ast, GraphQL) :-
+    ast_node_query(Ast, GraphQL).
+
+create_graphql_propname(Prop, Direction, P) :-
+    compress_schema(Prop, _{'@schema' : 'http://www.wikidata.org/prop/direct/' }, Short),
+    (   Direction = forward
+    ->  Short = P
+    ;   Direction = backward
+    ->  format(atom(P), '_~w_of_Node', Short)
+    ).
+
+ast_filter(Ast, Filter) :-
+    findall(
+        Pair,
+        (   get_dict(Prop, Ast, Destination),
+            destination(Destination, Direction, Child),
+            create_graphql_propname(Prop, Direction, P),
+            print_term(P, []),
+            (   Child = node(Node)
+            ->  Pair = P-[id-Node]
+            ;   is_dict(Node)
+            ->  ast_filter(Node, SubFilter),
+                Pair = P-SubFilter
+            )
+        ),
+        Filter
+    ).
+
+ast_node_query(Ast, node(Filter, SubQueries)) :-
+    ast_filter(Ast, Filter),
+    findall(
+        Subquery,
+        (    get_dict(Prop, Ast, Destination),
+             destination(Destination, Direction, Child),
+             create_graphql_propname(Prop, Direction, P),
+             (   Child = leaf_var(_)
+             ->  Subquery = P-node(true, '_id')
+             ;   Child = node(Node)
+             ->  Subquery = P-node([id-Node], '_id')
+             ;   is_dict(Child)
+             ->  ast_node_query(Child, Child_Query),
+                 Subquery = P-Child_Query
+             )
+        ),
+        SubQueries
+    ).
+
 
 :- begin_tests(sparql_pattern_match).
 test(match_node) :-
@@ -175,5 +226,23 @@ test(match_sparql) :-
     match_sparql('<http://www.wikidata.org/entity/Q10990> ?x1 ?x2 . ?x3 ?x4 ?x5.',
                  [sparql(node('http://www.wikidata.org/entity/Q10990'), var(x1), var(x2)),
                   sparql(var(x3), var(x4), var(x5))]).
+
+test(sparql_ast_disconnected, [
+         error(disconnected_edges([edge(var(x3),'http://www.wikidata.org/prop/direct/P18',var(x4))]))
+     ]) :-
+    sparql_ast('?x1 <http://www.wikidata.org/prop/direct/P1010> ?x2 . ?x3 <http://www.wikidata.org/prop/direct/P18> ?x4 . ', _Ast).
+
+test(sparql_ast) :-
+    sparql_ast('?x1 <http://www.wikidata.org/prop/direct/P105> <http://www.wikidata.org/entity/Q7432> . ?x1 <http://www.wikidata.org/prop/direct/P225> ?x2 . ', Ast),
+    Ast = _{ 'http://www.wikidata.org/prop/direct/P105':
+             forward(node('http://www.wikidata.org/entity/Q7432')),
+			 'http://www.wikidata.org/prop/direct/P225':
+             forward(leaf_var(x2))
+		   }.
+
+test(ast_graphql) :-
+    sparql_ast('?x1 <http://www.wikidata.org/prop/direct/P105> <http://www.wikidata.org/entity/Q7432> . ?x1 <http://www.wikidata.org/prop/direct/P225> ?x2 . ', Ast),
+    sparql_to_graphql:ast_graphql(Ast, GraphQL),
+    print_term(GraphQL, []).
 
 :- end_tests(sparql_pattern_match).
