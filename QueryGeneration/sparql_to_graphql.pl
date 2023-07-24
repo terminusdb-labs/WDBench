@@ -81,6 +81,34 @@ match_sparql(Query, Statements) :-
              []),
     reverse(Result, Statements).
 
+sparql_edges(Query, Edges) :-
+    match_sparql(Query, Statements),
+    maplist([sparql(S,P,O),[edge(S,P,O,Visited),edge(O,P,S,Visited)]]>>true,
+            Statements,
+            Edges_),
+    append(Edges_, Edges).
+
+
+visit_next_edge(Node, Edges, Dict_In, Dict_Out) :-
+    member(edge(Node, node(P), O, Visited), Edges),
+    var(Visited),
+    !,
+    put_dict(P, Dict_In, O, Dict_Out),
+    Visited = visited.
+
+visit_edges(Node, Edges, Dict) :-
+    visit_edges_(Node, Edges, _{}, Dict).
+
+visit_edges_(Node, Edges, Dict_In, Dict_Out) :-
+    (   visit_next_edge(Node, Edges, Dict_In, Dict_Inter)
+    ->  visit_edges_(Node, Edges, Dict_Inter, Dict_Out)
+    ;   Dict_Out = Dict_In).
+
+visit_next_var_child(Dict_In, Edges, Dict_Out) :-
+    get_dict(Prop, Dict_In, var(Var)),
+    visit_edges(var(Var), Edges, Child_Dict),
+    put_dict(Prop, Dict_In, Child_Dict, Dict_Out).
+
 :- begin_tests(sparql_pattern_match).
 test(match_node) :-
     as_node('<foo>', foo).
