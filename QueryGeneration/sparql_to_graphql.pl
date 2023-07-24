@@ -83,17 +83,24 @@ match_sparql(Query, Statements) :-
 
 sparql_edges(Query, Edges) :-
     match_sparql(Query, Statements),
-    maplist([sparql(S,P,O),[edge(S,P,O,Visited),edge(O,P,S,Visited)]]>>true,
-            Statements,
-            Edges_),
+    convlist([sparql(S,node(P),O),[edge(S,forward(P),O,Visited),edge(O,backward(P),S,Visited)]]>>true,
+             Statements,
+             Edges_),
     append(Edges_, Edges).
 
 
 visit_next_edge(Node, Edges, Dict_In, Dict_Out) :-
-    member(edge(Node, node(P), O, Visited), Edges),
+    member(edge(Node, P, O, Visited), Edges),
     var(Visited),
     !,
-    put_dict(P, Dict_In, O, Dict_Out),
+    (   node_already_visited(O, Edges)
+    ->  throw(error(revisited_node(O), _))
+    ;   true),
+
+    (   P = forward(P_)
+    ->  put_dict(P_, Dict_In, forward(O), Dict_Out)
+    ;   P = backward(P_)
+    ->  put_dict(P_, Dict_In, backward(O), Dict_Out)),
     Visited = visited.
 
 visit_edges(Node, Edges, Dict) :-
@@ -104,10 +111,42 @@ visit_edges_(Node, Edges, Dict_In, Dict_Out) :-
     ->  visit_edges_(Node, Edges, Dict_Inter, Dict_Out)
     ;   Dict_Out = Dict_In).
 
+destination(forward(X), forward, X).
+destination(backward(X), backward, X).
+
+var_child(Dict, Prop, Dest, Var) :-
+    get_dict(Prop, Dict, X),
+    destination(X, Dest, var(Var)).
+
+unvisited_edge_away_from(Node, Edges) :-
+    member(edge(Node, _, _, Visited), Edges),
+    var(Visited).
+
 visit_next_var_child(Dict_In, Edges, Dict_Out) :-
-    get_dict(Prop, Dict_In, var(Var)),
-    visit_edges(var(Var), Edges, Child_Dict),
-    put_dict(Prop, Dict_In, Child_Dict, Dict_Out).
+    var_child(Dict_In, Prop, Dest, Var),
+    !,
+    (   unvisited_edge_away_from(var(Var), Edges)
+    ->  visit_edges(var(Var), Edges, Child_Dict),
+        visit_var_children(Child_Dict, Edges, Child_Dict_Resolved),
+        destination(Child, Dest, Child_Dict_Resolved)
+    ;   destination(Child, Dest, leaf_var(Var))),
+    put_dict(Prop, Dict_In, Child, Dict_Out).
+
+visit_var_children(Dict_In, Edges, Dict_Out) :-
+    (   visit_next_var_child(Dict_In, Edges, Dict_Inter)
+    ->  visit_var_children(Dict_Inter, Edges, Dict_Out)
+    ;   Dict_Out = Dict_In).
+
+node_already_visited(Node, Edges) :-
+    memberchk(edge(_, _, Node,Visited), Edges),
+    ground(Visited).
+
+sparql_ast(Query, Ast) :-
+    sparql_edges(Query, Edges),
+    Edges = [edge(Root, _, _, _)|_],
+    print_term(Root, []),
+    visit_edges(Root, Edges, Dict_1),
+    visit_var_children(Dict_1, Edges, Ast).
 
 :- begin_tests(sparql_pattern_match).
 test(match_node) :-
