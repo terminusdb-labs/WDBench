@@ -167,36 +167,45 @@ sparql_ast(Query, Ast) :-
 ast_graphql(Ast, GraphQL) :-
     ast_node_query(Ast, GraphQL).
 
+render_fields_(P, [Rendered]) :-
+    atom(P),
+    !,
+    format(atom(Rendered), ' ~w, ', [P]).
 render_fields_([], []).
 render_fields_([P-Query|Fields], [Rendered|Rendered_Fields]) :-
     render_graphql_(Query, Result),
-    format(atom(Rendered), ' ~w~q, ', [P, Result]),
+    format(atom(Rendered), ' ~w~w, ', [P, Result]),
     render_fields_(Fields, Rendered_Fields).
 
 render_fields(Fields, Rendered) :-
-    render_fields(Fields, Rendered_Fields),
+    render_fields_(Fields, Rendered_Fields),
     atomic_list_concat(Rendered_Fields, Rendered).
-
-render_filter_(Filter, Result),
 
 render_filters_([], []).
 render_filters_([P-Filter|Filters], [Rendered|Rendered_Filters]) :-
     (   is_list(Filter)
-    ->  render_filters_(Filter, Result)
-    ;   format(atom(Rendered), ' ~w:{someHave:~q}, ', [P, Result]),
+    ->  render_filters_(Filter, Result),
+        format(atom(Rendered), ' ~w:{someHave:{~w}}, ', [P, Result])
+    ;   format(atom(Rendered), ' ~w:{eq:~w}, ', [P, Filter])
     ),
-    render_filters_(Filters, Rendered_Fields).
+    render_filters_(Filters, Rendered_Filters).
 
-render_filter(Filters, Rendered) :-
-    render_filter_(Filters, Rendered_Filters),
+render_filters(Filters, Rendered) :-
+    render_filters_(Filters, Rendered_Filters0),
+    maplist([RF, NRF]>>format(atom(NRF), '{~w},', [RF]), Rendered_Filters0,
+            Rendered_Filters),
     atomic_list_concat(Rendered_Filters, Rendered).
 
 render_graphql_(query(Filter, Fields), Rendered) :-
-    render_filter(Filter, Rendered_Filter),
+    render_filters(Filter, Rendered_Filter),
     render_fields(Fields, Rendered_Fields),
-    format(atom(Rendered), '(filter:{_and : [ ~w ] }){ ~w }',
-           [Rendered_Filter,
-            Rendered_Fields]).
+    (   Rendered_Filter = []
+    ->  format(atom(Rendered), '{ ~w }',
+               [Rendered_Fields])
+    ;   format(atom(Rendered), '(filter:{_and : [ ~w ] }){ ~w }',
+               [Rendered_Filter,
+                Rendered_Fields])
+    ).
 
 render_graphql(Query, Atom) :-
     render_graphql_(Query, GQL),
@@ -207,7 +216,7 @@ create_graphql_propname(Prop, Direction, P) :-
     (   Direction = forward
     ->  Short = P
     ;   Direction = backward
-    ->  format(atom(P), '_~w_of_Node', Short)
+    ->  format(atom(P), '_~w_of_Node', [Short])
     ).
 
 ast_filter(Ast, Filter) :-
@@ -235,7 +244,7 @@ ast_node_query(Ast, query(Filter, SubQueries)) :-
              destination(Destination, Direction, Child),
              create_graphql_propname(Prop, Direction, P),
              (   Child = leaf_var(_)
-             ->  Subquery = P-query(true, '_id')
+             ->  Subquery = P-query([], '_id')
              ;   Child = node(Node)
              ->  Subquery = P-query([id-Node], '_id')
              ;   is_dict(Child)
@@ -284,7 +293,13 @@ test(ast_graphql) :-
 				    [ 'P105' - query([ id - 'http://www.wikidata.org/entity/Q7432'
 								     ],
 								     '_id'),
-					  'P225' - query(true,'_id')
+					  'P225' - query([],'_id')
 				    ]).
+
+test(render_graphql) :-
+    sparql_ast('?x1 <http://www.wikidata.org/prop/direct/P105> <http://www.wikidata.org/entity/Q7432> . ?x1 <http://www.wikidata.org/prop/direct/P225> ?x2 . ', Ast),
+    sparql_to_graphql:ast_graphql(Ast, GraphQL),
+    render_graphql(GraphQL, Rendered),
+    Rendered = 'Node(filter:{_and : [ { P105:{someHave:{[ id:{eq:http://www.wikidata.org/entity/Q7432}, ]}}, }, ] }){  P105(filter:{_and : [ { id:{eq:http://www.wikidata.org/entity/Q7432}, }, ] }){  _id,  },  P225(filter:{_and : [  ] }){  _id,  },  }'.
 
 :- end_tests(sparql_pattern_match).
