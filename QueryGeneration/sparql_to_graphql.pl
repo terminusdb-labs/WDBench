@@ -167,6 +167,41 @@ sparql_ast(Query, Ast) :-
 ast_graphql(Ast, GraphQL) :-
     ast_node_query(Ast, GraphQL).
 
+render_fields_([], []).
+render_fields_([P-Query|Fields], [Rendered|Rendered_Fields]) :-
+    render_graphql_(Query, Result),
+    format(atom(Rendered), ' ~w~q, ', [P, Result]),
+    render_fields_(Fields, Rendered_Fields).
+
+render_fields(Fields, Rendered) :-
+    render_fields(Fields, Rendered_Fields),
+    atomic_list_concat(Rendered_Fields, Rendered).
+
+render_filter_(Filter, Result),
+
+render_filters_([], []).
+render_filters_([P-Filter|Filters], [Rendered|Rendered_Filters]) :-
+    (   is_list(Filter)
+    ->  render_filters_(Filter, Result)
+    ;   format(atom(Rendered), ' ~w:{someHave:~q}, ', [P, Result]),
+    ),
+    render_filters_(Filters, Rendered_Fields).
+
+render_filter(Filters, Rendered) :-
+    render_filter_(Filters, Rendered_Filters),
+    atomic_list_concat(Rendered_Filters, Rendered).
+
+render_graphql_(query(Filter, Fields), Rendered) :-
+    render_filter(Filter, Rendered_Filter),
+    render_fields(Fields, Rendered_Fields),
+    format(atom(Rendered), '(filter:{_and : [ ~w ] }){ ~w }',
+           [Rendered_Filter,
+            Rendered_Fields]).
+
+render_graphql(Query, Atom) :-
+    render_graphql_(Query, GQL),
+    format(atom(Atom), 'Node~w', [GQL]).
+
 create_graphql_propname(Prop, Direction, P) :-
     compress_schema(Prop, _{'@schema' : 'http://www.wikidata.org/prop/direct/' }, Short),
     (   Direction = forward
@@ -192,7 +227,7 @@ ast_filter(Ast, Filter) :-
         Filter
     ).
 
-ast_node_query(Ast, node(Filter, SubQueries)) :-
+ast_node_query(Ast, query(Filter, SubQueries)) :-
     ast_filter(Ast, Filter),
     findall(
         Subquery,
@@ -200,9 +235,9 @@ ast_node_query(Ast, node(Filter, SubQueries)) :-
              destination(Destination, Direction, Child),
              create_graphql_propname(Prop, Direction, P),
              (   Child = leaf_var(_)
-             ->  Subquery = P-node(true, '_id')
+             ->  Subquery = P-query(true, '_id')
              ;   Child = node(Node)
-             ->  Subquery = P-node([id-Node], '_id')
+             ->  Subquery = P-query([id-Node], '_id')
              ;   is_dict(Child)
              ->  ast_node_query(Child, Child_Query),
                  Subquery = P-Child_Query
@@ -243,6 +278,13 @@ test(sparql_ast) :-
 test(ast_graphql) :-
     sparql_ast('?x1 <http://www.wikidata.org/prop/direct/P105> <http://www.wikidata.org/entity/Q7432> . ?x1 <http://www.wikidata.org/prop/direct/P225> ?x2 . ', Ast),
     sparql_to_graphql:ast_graphql(Ast, GraphQL),
-    print_term(GraphQL, []).
+    GraphQL = query([ 'P105' - [ id - 'http://www.wikidata.org/entity/Q7432'
+							  ]
+				    ],
+				    [ 'P105' - query([ id - 'http://www.wikidata.org/entity/Q7432'
+								     ],
+								     '_id'),
+					  'P225' - query(true,'_id')
+				    ]).
 
 :- end_tests(sparql_pattern_match).
