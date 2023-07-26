@@ -190,20 +190,20 @@ render_filters_([P-Filter|Filters], [Rendered|Rendered_Filters]) :-
     ),
     render_filters_(Filters, Rendered_Filters).
 
-render_filters(Filters, Rendered) :-
+render_filters(Filters, Rendered_Filters) :-
     render_filters_(Filters, Rendered_Filters0),
     maplist([RF, NRF]>>format(atom(NRF), '{~w},', [RF]), Rendered_Filters0,
-            Rendered_Filters),
-    atomic_list_concat(Rendered_Filters, Rendered).
+            Rendered_Filters).
 
 render_graphql_(query(Filter, Fields), Rendered) :-
-    render_filters(Filter, Rendered_Filter),
+    render_filters(Filter, Rendered_Filters),
     render_fields(Fields, Rendered_Fields),
-    (   Rendered_Filter = []
+    (   Rendered_Filters = []
     ->  format(atom(Rendered), '{ ~w }',
                [Rendered_Fields])
-    ;   format(atom(Rendered), '(filter:{_and : [ ~w ] }){ ~w }',
-               [Rendered_Filter,
+    ;   atomic_list_concat(Rendered_Filters, Filter_Atom),
+        format(atom(Rendered), '(filter:{_and : [ ~w ] }){ ~w }',
+               [Filter_Atom,
                 Rendered_Fields])
     ).
 
@@ -300,6 +300,7 @@ test(render_graphql) :-
     sparql_ast('?x1 <http://www.wikidata.org/prop/direct/P105> <http://www.wikidata.org/entity/Q7432> . ?x1 <http://www.wikidata.org/prop/direct/P225> ?x2 . ', Ast),
     sparql_to_graphql:ast_graphql(Ast, GraphQL),
     render_graphql(GraphQL, Rendered),
-    Rendered = 'Node(filter:{_and : [ { P105:{someHave:{[ id:{eq:http://www.wikidata.org/entity/Q7432}, ]}}, }, ] }){  P105(filter:{_and : [ { id:{eq:http://www.wikidata.org/entity/Q7432}, }, ] }){  _id,  },  P225(filter:{_and : [  ] }){  _id,  },  }'.
+    print_term(Rendered, []),
+    Rendered = 'Node(filter:{_and : [ { P105:{someHave:{[ id:{eq:http://www.wikidata.org/entity/Q7432}, ]}}, }, ] }){  P105(filter:{_and : [ { id:{eq:http://www.wikidata.org/entity/Q7432}, }, ] }){  _id,  },  P225{  _id,  },  }'.
 
 :- end_tests(sparql_pattern_match).
