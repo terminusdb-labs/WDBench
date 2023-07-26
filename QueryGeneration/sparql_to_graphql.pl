@@ -22,7 +22,7 @@ sparql_expression(X) :-
     node_expression(NE),
     var_expression(VE),
     path_expression(PE),
-    format(atom(X), '\\s*(?P<subject>~s|~s) (?P<predicate>~s|~s|~s) (?P<object>~s|~s)\\s*(\\.\\s*|$)', [NE, VE, NE, VE, PE, NE, VE]).
+    format(atom(X), '\\s*(?P<optional>OPTIONAL\s*{)?\\s*(?P<subject>~s|~s) (?P<predicate>~s|~s|~s) (?P<object>~s|~s)\\s*}?(\\.\\s*|$)', [NE, VE, NE, VE, PE, NE, VE]).
 
 is_node(X) :-
     node_expression(NE),
@@ -101,28 +101,77 @@ parse_path(Path_String, Path) :-
 
 path_to_woql(p(Pred), WOQL) :-
     compress_schema(Pred, _{'@schema' : 'http://www.wikidata.org/prop/direct/' }, Short),
-    format(atom(WOQL), '~w', [Short]).
+    WOQL = _{ '@type' : "PathPredicate", predicate: Short }.
 path_to_woql(star(Path), WOQL) :-
     path_to_woql(Path, Inner),
-    format(atom(WOQL), '~w*', [Inner]).
+    WOQL = _{ '@type' : "PathStar", star : Inner }.
 path_to_woql(plus(Path), WOQL) :-
     path_to_woql(Path, Inner),
-    format(atom(WOQL), '~w+', [Inner]).
-path_to_woql(group(Path), WOQL) :-
-    path_to_woql(Path, Inner),
-    format(atom(WOQL), '(~w)', [Inner]).
+    WOQL = _{ '@type' : "PathPlus", star : Inner }.
+path_to_woql(group(Path), Inner) :-
+    path_to_woql(Path, Inner).
 path_to_woql((PathA,PathB), WOQL) :-
     path_to_woql(PathA, InnerA),
     path_to_woql(PathB, InnerB),
-    format(atom(WOQL), '~w,~w', [InnerA,InnerB]).
+    WOQL = _{ '@type' : "PathSequence",
+              sequence : [InnerA, InnerB] }.
 path_to_woql((PathA|PathB), WOQL) :-
     path_to_woql(PathA, InnerA),
     path_to_woql(PathB, InnerB),
-    format(atom(WOQL), '~w|~w', [InnerA,InnerB]).
+    WOQL = _{ '@type' : "PathOr",
+              sequence : [InnerA, InnerB] }.
+
+subject_woql(node(N), WOQL) :-
+    WOQL = _{ '@type' : "NodeValue", node: N }.
+subject_woql(var(V), WOQL) :-
+    WOQL = _{ '@type' : "NodeValue", variable: V }.
+
+predicate_woql(node(N), WOQL) :-
+    WOQL = _{ '@type' : "NodeValue", node: N }.
+predicate_woql(var(V), WOQL) :-
+    WOQL = _{ '@type' : "NodeValue", variable: V }.
+
+object_woql(node(N), WOQL) :-
+    WOQL = _{ '@type' : "Value", node: N }.
+object_woql(var(V), WOQL) :-
+    WOQL = _{ '@type' : "Value", variable: V }.
+
+ast_to_woql(Ast, WOQL) :-
+    findall(
+        WOQL_Statement,
+        (   member(Term, Ast),
+            Term =.. [Type, Subject, Predicate, Object],
+            subject_woql(Subject, WOQL_Subject),
+            object_woql(Object, WOQL_Object),
+            (   Predicate = node(PathExp),
+                is_path(PathExp)
+            ->  parse_path(PathExp, Path),
+                path_to_woql(Path, WOQL_Path),
+                WOQL_Statement = _{ '@type' : "Path",
+                                    subject: WOQL_Subject,
+                                    pattern: WOQL_Path,
+                                    object: WOQL_Object }
+            ;   predicate_woql(Predicate, WOQL_Predicate),
+                Pre_Statement = _{ '@type' : "Triple",
+                                   subject: WOQL_Subject,
+                                   predicate: WOQL_Predicate,
+                                   object: WOQL_Object },
+                (   Type = sparql
+                ->  WOQL_Statement = Pre_Statement
+                ;   Type = optional
+                ->  WOQL_Statement = _{ '@type' : "Optional",
+                                        query: Pre_Statement }
+                )
+            )
+        ),
+        WOQL_Statements
+    ),
+    WOQL = _{ '@type' : "And",
+              and : WOQL_Statements }.
 
 match_sparql(Query, Statements) :-
     sparql_expression(SE),
-    re_foldl([Dict, Last, [sparql(Subject, Predicate, Object)|Last]]>>(
+    re_foldl([Dict, Last, [Term|Last]]>>(
                  get_dict(subject, Dict, S),
                  get_dict(predicate, Dict, P),
                  get_dict(object, Dict, O),
@@ -130,7 +179,11 @@ match_sparql(Query, Statements) :-
                  node_or_var(S, Subject),
                  node_or_var_or_path(P, Predicate),
                  % todo this should probably match data too?
-                 node_or_var(O, Object)
+                 node_or_var(O, Object),
+                 (   get_dict(optional, Dict, "")
+                 ->  Term = sparql(Subject, Predicate, Object)
+                 ;   Term = optional(Subject, Predicate, Object)
+                 )
              ),
              SE,
              Query,
@@ -371,8 +424,211 @@ test(parse_complex_path) :-
 							     ))
 						 ))
 			   )),
-    !,
     path_to_woql(Path, WOQL),
-    WOQL = '((P279,((P279)*|(P31)*))|(P31,((P279)*|(P31)*)))'.
+
+    WOQL = _{ '@type':"PathOr",
+	          sequence:[ _{ '@type':"PathSequence",
+					        sequence:[ _{ '@type':"PathPredicate",
+								          predicate:'P279'
+								        },
+								       _{ '@type':"PathOr",
+								          sequence:[ _{ '@type':"PathStar",
+										                star:_{ '@type':"PathPredicate",
+											                    predicate:'P279'
+											                  }
+										              },
+										             _{ '@type':"PathStar",
+										                star:_{ '@type':"PathPredicate",
+											                    predicate:'P31'
+											                  }
+										              }
+										           ]
+								        }
+							         ]
+				          },
+				         _{ '@type':"PathSequence",
+					        sequence:[ _{ '@type':"PathPredicate",
+								          predicate:'P31'
+								        },
+								       _{ '@type':"PathOr",
+								          sequence:[ _{ '@type':"PathStar",
+										                star:_{ '@type':"PathPredicate",
+											                    predicate:'P279'
+											                  }
+										              },
+										             _{ '@type':"PathStar",
+										                star:_{ '@type':"PathPredicate",
+											                    predicate:'P31'
+											                  }
+										              }
+										           ]
+								        }
+							         ]
+				          }
+				       ]
+	        }.
+
+test(multiple_bgp17, []) :-
+    Query = '?x1 <http://www.wikidata.org/prop/direct/P105> ?x2 . ?x3 <http://www.wikidata.org/prop/direct/P105> ?x4 . ?x1 <http://www.wikidata.org/prop/direct/P171> ?x3 . ?x1 <http://www.wikidata.org/prop/direct/P31> <http://www.wikidata.org/entity/Q16521> . ?x3 <http://www.wikidata.org/prop/direct/P31> <http://www.wikidata.org/entity/Q16521> . ?x4 <http://www.wikidata.org/prop/direct/P361> ?x2 . ',
+    match_sparql(Query, Edges),
+    ast_to_woql(Edges, WOQL),
+    WOQL = _{ '@type':"And",
+			  and:[ _{ '@type':"Triple",
+					   object:_{ '@type':"Value",
+								 variable:x2
+							   },
+					   predicate:_{ '@type':"NodeValue",
+								    node:'http://www.wikidata.org/prop/direct/P105'
+								  },
+					   subject:_{ '@type':"NodeValue",
+								  variable:x1
+							    }
+					 },
+					_{ '@type':"Triple",
+					   object:_{ '@type':"Value",
+								 variable:x4
+							   },
+					   predicate:_{ '@type':"NodeValue",
+								    node:'http://www.wikidata.org/prop/direct/P105'
+								  },
+					   subject:_{ '@type':"NodeValue",
+								  variable:x3
+							    }
+					 },
+					_{ '@type':"Triple",
+					   object:_{ '@type':"Value",
+								 variable:x3
+							   },
+					   predicate:_{ '@type':"NodeValue",
+								    node:'http://www.wikidata.org/prop/direct/P171'
+								  },
+					   subject:_{ '@type':"NodeValue",
+								  variable:x1
+							    }
+					 },
+					_{ '@type':"Triple",
+					   object:_{ '@type':"Value",
+								 node:'http://www.wikidata.org/entity/Q16521'
+							   },
+					   predicate:_{ '@type':"NodeValue",
+								    node:'http://www.wikidata.org/prop/direct/P31'
+								  },
+					   subject:_{ '@type':"NodeValue",
+								  variable:x1
+							    }
+					 },
+					_{ '@type':"Triple",
+					   object:_{ '@type':"Value",
+								 node:'http://www.wikidata.org/entity/Q16521'
+							   },
+					   predicate:_{ '@type':"NodeValue",
+								    node:'http://www.wikidata.org/prop/direct/P31'
+								  },
+					   subject:_{ '@type':"NodeValue",
+								  variable:x3
+							    }
+					 },
+					_{ '@type':"Triple",
+					   object:_{ '@type':"Value",
+								 variable:x2
+							   },
+					   predicate:_{ '@type':"NodeValue",
+								    node:'http://www.wikidata.org/prop/direct/P361'
+								  },
+					   subject:_{ '@type':"NodeValue",
+								  variable:x4
+							    }
+					 }
+				  ]
+			}.
+
+test(optional3) :-
+    match_sparql('?x1 <http://www.wikidata.org/prop/direct/P102> <http://www.wikidata.org/entity/Q6721203> . OPTIONAL { ?x1 <http://www.wikidata.org/prop/direct/P569> ?x2 . } OPTIONAL { ?x1 <http://www.wikidata.org/prop/direct/P19> ?x3 . } OPTIONAL { ?x1 <http://www.wikidata.org/prop/direct/P21> ?x4 . } OPTIONAL { ?x3 <http://www.wikidata.org/prop/direct/P625> ?x5 . } ', Results),
+    Results = [ sparql(var(x1),
+					   node('http://www.wikidata.org/prop/direct/P102'),
+					   node('http://www.wikidata.org/entity/Q6721203')),
+				optional(var(x1),
+						 node('http://www.wikidata.org/prop/direct/P569'),
+						 var(x2)),
+				optional(var(x1),
+						 node('http://www.wikidata.org/prop/direct/P19'),
+						 var(x3)),
+				optional(var(x1),
+						 node('http://www.wikidata.org/prop/direct/P21'),
+						 var(x4)),
+				optional(var(x3),
+						 node('http://www.wikidata.org/prop/direct/P625'),
+						 var(x5))
+			  ].
+
+test(optional3_woql) :-
+    match_sparql('?x1 <http://www.wikidata.org/prop/direct/P102> <http://www.wikidata.org/entity/Q6721203> . OPTIONAL { ?x1 <http://www.wikidata.org/prop/direct/P569> ?x2 . } OPTIONAL { ?x1 <http://www.wikidata.org/prop/direct/P19> ?x3 . } OPTIONAL { ?x1 <http://www.wikidata.org/prop/direct/P21> ?x4 . } OPTIONAL { ?x3 <http://www.wikidata.org/prop/direct/P625> ?x5 . } ', Edges),
+    ast_to_woql(Edges, WOQL),
+    WOQL = _{ '@type':"And",
+			  and:[ _{ '@type':"Triple",
+					   object:_{ '@type':"Value",
+								 node:'http://www.wikidata.org/entity/Q6721203'
+							   },
+					   predicate:_{ '@type':"NodeValue",
+								    node:'http://www.wikidata.org/prop/direct/P102'
+								  },
+					   subject:_{ '@type':"NodeValue",
+								  variable:x1
+								}
+					 },
+					_{ '@type':"Optional",
+					   query:_{ '@type':"Triple",
+								object:_{ '@type':"Value",
+									      variable:x2
+									    },
+								predicate:_{ '@type':"NodeValue",
+									         node:'http://www.wikidata.org/prop/direct/P569'
+									       },
+								subject:_{ '@type':"NodeValue",
+									       variable:x1
+									     }
+							  }
+					 },
+					_{ '@type':"Optional",
+					   query:_{ '@type':"Triple",
+								object:_{ '@type':"Value",
+									      variable:x3
+									    },
+								predicate:_{ '@type':"NodeValue",
+									         node:'http://www.wikidata.org/prop/direct/P19'
+									       },
+								subject:_{ '@type':"NodeValue",
+									       variable:x1
+									     }
+							  }
+					 },
+					_{ '@type':"Optional",
+					   query:_{ '@type':"Triple",
+								object:_{ '@type':"Value",
+									      variable:x4
+									    },
+								predicate:_{ '@type':"NodeValue",
+									         node:'http://www.wikidata.org/prop/direct/P21'
+									       },
+								subject:_{ '@type':"NodeValue",
+									       variable:x1
+									     }
+							  }
+					 },
+					_{ '@type':"Optional",
+					   query:_{ '@type':"Triple",
+								object:_{ '@type':"Value",
+									      variable:x5
+									    },
+								predicate:_{ '@type':"NodeValue",
+									         node:'http://www.wikidata.org/prop/direct/P625'
+									       },
+								subject:_{ '@type':"NodeValue",
+									       variable:x3
+									     }
+							  }
+					 }
+				  ]
+			}.
 
 :- end_tests(sparql_pattern_match).
