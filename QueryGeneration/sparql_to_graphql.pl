@@ -65,6 +65,60 @@ node_or_var_or_path(X, O),
 is_path(X) =>
     O = path(X).
 
+group(group(Path)) --> "(", path(Path), ")" .
+
+and((PathA,PathB)) --> base_path(PathA), "/", path(PathB) .
+
+or((PathA | PathB)) --> base_path(PathA), "|", path(PathB) .
+
+anyBut(S,A,[H|T],T) :- atom_codes(S,C), \+ member(H,C), atom_codes(A,[H]) .
+
+url(S) --> anyBut('>', C), url(Rest), { atom_concat(C, Rest, S) } .
+url(S) --> anyBut('>', S) .
+
+carrot(c(Path)) --> "^", path(Path) .
+
+pred(p(Path)) --> "<", url(Path), ">" .
+
+star(star(Path)) --> simple_base_path(Path), "*", ! .
+plus(plus(Path)) --> simple_base_path(Path), "+" .
+
+simple_base_path(Path) --> pred(Path), ! .
+simple_base_path(Path) --> carrot(Path), ! .
+simple_base_path(Path) --> group(Path) .
+
+base_path(Path) --> star(Path), ! .
+base_path(Path) --> plus(Path), ! .
+base_path(Path) --> simple_base_path(Path) .
+
+path(Path) --> and(Path) , !.
+path(Path) --> or(Path) , !.
+path(Path) --> base_path(Path) .
+
+parse_path(Path_String, Path) :-
+    atom_codes(Path_String, Codes),
+    phrase(path(Path), Codes, []).
+
+path_to_woql(p(Pred), WOQL) :-
+    compress_schema(Pred, _{'@schema' : 'http://www.wikidata.org/prop/direct/' }, Short),
+    format(atom(WOQL), '~w', [Short]).
+path_to_woql(star(Path), WOQL) :-
+    path_to_woql(Path, Inner),
+    format(atom(WOQL), '~w*', [Inner]).
+path_to_woql(plus(Path), WOQL) :-
+    path_to_woql(Path, Inner),
+    format(atom(WOQL), '~w+', [Inner]).
+path_to_woql(group(Path), WOQL) :-
+    path_to_woql(Path, Inner),
+    format(atom(WOQL), '(~w)', [Inner]).
+path_to_woql((PathA,PathB), WOQL) :-
+    path_to_woql(PathA, InnerA),
+    path_to_woql(PathB, InnerB),
+    format(atom(WOQL), '~w,~w', [InnerA,InnerB]).
+path_to_woql((PathA|PathB), WOQL) :-
+    path_to_woql(PathA, InnerA),
+    path_to_woql(PathB, InnerB),
+    format(atom(WOQL), '~w|~w', [InnerA,InnerB]).
 
 match_sparql(Query, Statements) :-
     sparql_expression(SE),
@@ -167,6 +221,7 @@ sparql_ast(Query, Ast) :-
 ast_graphql(Ast, GraphQL) :-
     ast_node_query(Ast, GraphQL).
 
+
 render_fields_(P, [Rendered]) :-
     atom(P),
     !,
@@ -225,7 +280,6 @@ ast_filter(Ast, Filter) :-
         (   get_dict(Prop, Ast, Destination),
             destination(Destination, Direction, Child),
             create_graphql_propname(Prop, Direction, P),
-            print_term(P, []),
             (   Child = node(Node)
             ->  Pair = P-[id-Node]
             ;   is_dict(Node)
@@ -300,7 +354,25 @@ test(render_graphql) :-
     sparql_ast('?x1 <http://www.wikidata.org/prop/direct/P105> <http://www.wikidata.org/entity/Q7432> . ?x1 <http://www.wikidata.org/prop/direct/P225> ?x2 . ', Ast),
     sparql_to_graphql:ast_graphql(Ast, GraphQL),
     render_graphql(GraphQL, Rendered),
-    print_term(Rendered, []),
     Rendered = 'Node(filter:{_and : [ { P105:{someHave:{[ id:{eq:http://www.wikidata.org/entity/Q7432}, ]}}, }, ] }){  P105(filter:{_and : [ { id:{eq:http://www.wikidata.org/entity/Q7432}, }, ] }){  _id,  },  P225{  _id,  },  }'.
+
+test(parse_complex_path) :-
+    parse_path("((<http://www.wikidata.org/prop/direct/P279>/((<http://www.wikidata.org/prop/direct/P279>)*|(<http://www.wikidata.org/prop/direct/P31>)*))|(<http://www.wikidata.org/prop/direct/P31>/((<http://www.wikidata.org/prop/direct/P279>)*|(<http://www.wikidata.org/prop/direct/P31>)*)))", Path),
+    Path = group(
+               (
+                   group(( p('http://www.wikidata.org/prop/direct/P279'),
+						   group(( star(group(p('http://www.wikidata.org/prop/direct/P279'))) '|'
+								   star(group(p('http://www.wikidata.org/prop/direct/P31')))
+							     ))
+						 )) '|'
+				   group(( p('http://www.wikidata.org/prop/direct/P31'),
+						   group(( star(group(p('http://www.wikidata.org/prop/direct/P279'))) '|'
+								   star(group(p('http://www.wikidata.org/prop/direct/P31')))
+							     ))
+						 ))
+			   )),
+    !,
+    path_to_woql(Path, WOQL),
+    WOQL = '((P279,((P279)*|(P31)*))|(P31,((P279)*|(P31)*)))'.
 
 :- end_tests(sparql_pattern_match).
