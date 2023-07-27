@@ -1,6 +1,8 @@
-:- module(sparql_to_graphql, []).
+:- module(sparql_to_graphql, [sparql_csv_to_woql_csv/2]).
 :- use_module(library(pcre)).
 :- use_module(library(plunit)).
+:- use_module(library(csv)).
+:- use_module(library(http/json)).
 
 compress_schema(Uri, Prefixes, Result) :-
     get_dict('@schema', Prefixes, Schema),
@@ -15,7 +17,7 @@ group_var_expression('\\?([a-zA-z][a-zA-z0-9]*)').
 :- table path_expression/1.
 path_expression(X) :-
     node_expression(NE),
-    format(atom(X), '\\^?\\(([\\^\\(\\)\\|/\\*\\+\\?]|~s)+\\)', [NE]).
+    format(atom(X), '\\^?\\(([\\^\\(\\)\\|/\\*\\+\\?]|~s)+\\)[\\*,\\+]?', [NE]).
 
 :- table sparql_expression/1.
 sparql_expression(X) :-
@@ -56,49 +58,98 @@ as_var(X, V) =>
     O = var(V).
 
 node_or_var_or_path(X, O),
+is_path(X) =>
+    O = path(X).
+node_or_var_or_path(X, O),
 as_node(X, N) =>
     O = node(N).
 node_or_var_or_path(X, O),
 as_var(X, V) =>
     O = var(V).
-node_or_var_or_path(X, O),
-is_path(X) =>
-    O = path(X).
 
 group(group(Path)) --> "(", path(Path), ")" .
 
-and((PathA,PathB)) --> base_path(PathA), "/", path(PathB) .
-
-or((PathA | PathB)) --> base_path(PathA), "|", path(PathB) .
-
 anyBut(S,A,[H|T],T) :- atom_codes(S,C), \+ member(H,C), atom_codes(A,[H]) .
 
-url(S) --> anyBut('>', C), url(Rest), { atom_concat(C, Rest, S) } .
+url(S) --> anyBut('>', C), url(Rest), !, { atom_concat(C, Rest, S) } .
 url(S) --> anyBut('>', S) .
 
-carrot(c(Path)) --> "^", path(Path) .
+caret(neg(Path)) --> "^", path(Path) .
 
 pred(p(Path)) --> "<", url(Path), ">" .
 
-star(star(Path)) --> simple_base_path(Path), "*", ! .
+star(star(Path)) --> simple_base_path(Path), "*" .
+
 plus(plus(Path)) --> simple_base_path(Path), "+" .
 
+question(times(Path, 0, 1)) --> simple_base_path(Path), "?" .
+
 simple_base_path(Path) --> pred(Path), ! .
-simple_base_path(Path) --> carrot(Path), ! .
+simple_base_path(Path) --> caret(Path), ! .
 simple_base_path(Path) --> group(Path) .
 
-base_path(Path) --> star(Path), ! .
-base_path(Path) --> plus(Path), ! .
-base_path(Path) --> simple_base_path(Path) .
+path_type(Path, plus(Path)) --> "+", ! .
+path_type(Path, star(Path)) --> "*", ! .
+path_type(Path, times(Path, 0, 1)) --> "?", ! .
+path_type(Path, Path) --> {true} .
 
-path(Path) --> and(Path) , !.
-path(Path) --> or(Path) , !.
-path(Path) --> base_path(Path) .
+base_path(PathType) --> simple_base_path(Path), !, path_type(Path, PathType) .
 
-parse_path(Path_String, Path) :-
+or((PathA | PathB)) --> base_path(PathA), "|", !, path(PathB) .
+or(Path) --> base_path(Path) .
+
+and((PathA,PathB)) --> or(PathA), "/", !, and(PathB) .
+and(Path) --> or(Path) .
+
+path(Path) -->
+    and(Path) .
+
+negate(p(Pred), n(Pred)).
+negate(n(Pred), p(Pred)).
+negate(neg(Path), Path).
+negate(plus(Path), plus(Neg)) :-
+    negate(Path, Neg).
+negate(star(Path), star(Neg)) :-
+    negate(Path, Neg).
+negate(times(Path, M, N), times(Neg, N, M)) :-
+    negate(Path, Neg).
+negate((PathA,PathB), (NegB, NegA)) :-
+    negate(PathA, NegA),
+    negate(PathB, NegB).
+negate((PathA | PathB), (NegA | NegB)) :-
+    negate(PathA, NegA),
+    negate(PathB, NegB).
+negate(group(Path), Neg) :- negate(Path, Neg).
+
+negation_normal_form(p(Pred), p(Pred)).
+negation_normal_form(n(Pred), n(Pred)).
+negation_normal_form(plus(Path), plus(Normal)) :-
+    negation_normal_form(Path, Normal).
+negation_normal_form(star(Path), star(Normal)) :-
+    negation_normal_form(Path, Normal).
+negation_normal_form(times(Path, M, N), times(Normal, M, N)) :-
+    negation_normal_form(Path, Normal).
+negation_normal_form(neg(Path), Normal) :-
+    negate(Path, Neg),
+    negation_normal_form(Neg, Normal).
+negation_normal_form(group(Path), Normal) :-
+    negation_normal_form(Path, Normal).
+negation_normal_form((PathA,PathB), (NormalA, NormalB)) :-
+    negation_normal_form(PathA, NormalA),
+    negation_normal_form(PathB, NormalB).
+negation_normal_form((PathA|PathB), (NormalA | NormalB)) :-
+    negation_normal_form(PathA, NormalA),
+    negation_normal_form(PathB, NormalB).
+
+parse_path(Path_String, Normal) :-
     atom_codes(Path_String, Codes),
-    phrase(path(Path), Codes, []).
+    phrase(path(Path), Codes, []),
+    !,
+    negation_normal_form(Path, Normal).
 
+path_to_woql(n(Pred), WOQL) :-
+    compress_schema(Pred, _{'@schema' : 'http://www.wikidata.org/prop/direct/' }, Short),
+    WOQL = _{ '@type' : "InversePathPredicate", predicate: Short }.
 path_to_woql(p(Pred), WOQL) :-
     compress_schema(Pred, _{'@schema' : 'http://www.wikidata.org/prop/direct/' }, Short),
     WOQL = _{ '@type' : "PathPredicate", predicate: Short }.
@@ -108,6 +159,9 @@ path_to_woql(star(Path), WOQL) :-
 path_to_woql(plus(Path), WOQL) :-
     path_to_woql(Path, Inner),
     WOQL = _{ '@type' : "PathPlus", star : Inner }.
+path_to_woql(times(Path, M, N), WOQL) :-
+    path_to_woql(Path, Inner),
+    WOQL = _{ '@type' : "PathTimes", times : Inner, from: M, to: N }.
 path_to_woql(group(Path), Inner) :-
     path_to_woql(Path, Inner).
 path_to_woql((PathA,PathB), WOQL) :-
@@ -143,8 +197,7 @@ ast_to_woql(Ast, WOQL) :-
             Term =.. [Type, Subject, Predicate, Object],
             subject_woql(Subject, WOQL_Subject),
             object_woql(Object, WOQL_Object),
-            (   Predicate = node(PathExp),
-                is_path(PathExp)
+            (   Predicate = path(PathExp)
             ->  parse_path(PathExp, Path),
                 path_to_woql(Path, WOQL_Path),
                 WOQL_Statement = _{ '@type' : "Path",
@@ -166,8 +219,11 @@ ast_to_woql(Ast, WOQL) :-
         ),
         WOQL_Statements
     ),
-    WOQL = _{ '@type' : "And",
-              and : WOQL_Statements }.
+    (   WOQL_Statements = []
+    ->  fail
+    ;   WOQL = _{ '@type' : "And",
+                  and : WOQL_Statements }
+    ).
 
 match_sparql(Query, Statements) :-
     sparql_expression(SE),
@@ -293,8 +349,9 @@ render_filters_([], []).
 render_filters_([P-Filter|Filters], [Rendered|Rendered_Filters]) :-
     (   is_list(Filter)
     ->  render_filters_(Filter, Result),
-        format(atom(Rendered), ' ~w:{someHave:{~w}}, ', [P, Result])
-    ;   format(atom(Rendered), ' ~w:{eq:~w}, ', [P, Filter])
+        atomic_list_concat(Result, Result_Atom),
+        format(atom(Rendered), ' ~w:{someHave:{~w}}, ', [P, Result_Atom])
+    ;   format(atom(Rendered), ' ~w:{eq:"~w"}, ', [P, Filter])
     ),
     render_filters_(Filters, Rendered_Filters).
 
@@ -334,7 +391,7 @@ ast_filter(Ast, Filter) :-
             destination(Destination, Direction, Child),
             create_graphql_propname(Prop, Direction, P),
             (   Child = node(Node)
-            ->  Pair = P-[id-Node]
+            ->  Pair = P-['_id'-Node]
             ;   is_dict(Node)
             ->  ast_filter(Node, SubFilter),
                 Pair = P-SubFilter
@@ -353,7 +410,7 @@ ast_node_query(Ast, query(Filter, SubQueries)) :-
              (   Child = leaf_var(_)
              ->  Subquery = P-query([], '_id')
              ;   Child = node(Node)
-             ->  Subquery = P-query([id-Node], '_id')
+             ->  Subquery = P-query(['_id'-Node], '_id')
              ;   is_dict(Child)
              ->  ast_node_query(Child, Child_Query),
                  Subquery = P-Child_Query
@@ -362,6 +419,51 @@ ast_node_query(Ast, query(Filter, SubQueries)) :-
         SubQueries
     ).
 
+sparql_woql(Sparql, WOQL) :-
+    match_sparql(Sparql, Edges),
+    ast_to_woql(Edges, WOQL).
+
+sparql_graphql(Sparql, Rendered) :-
+    catch(
+        (   sparql_ast(Sparql, Ast),
+            ast_graphql(Ast, GraphQL),
+            render_graphql(GraphQL, Rendered)
+        ),
+        E,
+        (   E = error(disconnected_edges(_), _)
+        ->  fail
+        ;   E = error(revisited_node(_), _)
+        ->  fail
+        ;   throw(E)
+        )
+    ).
+
+sparql_csv_to_woql_csv(CSV_In, CSV_Out) :-
+    setup_call_cleanup(
+        open(CSV_Out, write, Out),
+        forall(
+            csv_read_file_row(CSV_In, row(Num,Sparql_Query), []),
+            (   sparql_woql(Sparql_Query, WOQL_Query)
+            ->  atom_json_dict(WOQL_Query_Atom, WOQL_Query, [width(0)]),
+                csv_write_stream(Out, [row(Num,WOQL_Query_Atom)], [])
+            ;   true
+            )
+        ),
+        close(Out)
+    ).
+
+sparql_csv_to_graphql_csv(CSV_In, CSV_Out) :-
+    setup_call_cleanup(
+        open(CSV_Out, write, Out),
+        forall(
+            csv_read_file_row(CSV_In, row(Num,Sparql_Query), []),
+            (   sparql_graphql(Sparql_Query, Query)
+            ->  csv_write_stream(Out, [row(Num,Query)], [])
+            ;   true
+            )
+        ),
+        close(Out)
+    ).
 
 :- begin_tests(sparql_pattern_match).
 test(match_node) :-
@@ -394,10 +496,11 @@ test(sparql_ast) :-
 test(ast_graphql) :-
     sparql_ast('?x1 <http://www.wikidata.org/prop/direct/P105> <http://www.wikidata.org/entity/Q7432> . ?x1 <http://www.wikidata.org/prop/direct/P225> ?x2 . ', Ast),
     sparql_to_graphql:ast_graphql(Ast, GraphQL),
-    GraphQL = query([ 'P105' - [ id - 'http://www.wikidata.org/entity/Q7432'
+
+    GraphQL = query([ 'P105' - [ '_id' - 'http://www.wikidata.org/entity/Q7432'
 							  ]
 				    ],
-				    [ 'P105' - query([ id - 'http://www.wikidata.org/entity/Q7432'
+				    [ 'P105' - query([ '_id' - 'http://www.wikidata.org/entity/Q7432'
 								     ],
 								     '_id'),
 					  'P225' - query([],'_id')
@@ -407,23 +510,16 @@ test(render_graphql) :-
     sparql_ast('?x1 <http://www.wikidata.org/prop/direct/P105> <http://www.wikidata.org/entity/Q7432> . ?x1 <http://www.wikidata.org/prop/direct/P225> ?x2 . ', Ast),
     sparql_to_graphql:ast_graphql(Ast, GraphQL),
     render_graphql(GraphQL, Rendered),
-    Rendered = 'Node(filter:{_and : [ { P105:{someHave:{[ id:{eq:http://www.wikidata.org/entity/Q7432}, ]}}, }, ] }){  P105(filter:{_and : [ { id:{eq:http://www.wikidata.org/entity/Q7432}, }, ] }){  _id,  },  P225{  _id,  },  }'.
+
+    Rendered = 'Node(filter:{_and : [ { P105:{someHave:{ _id:{eq:"http://www.wikidata.org/entity/Q7432"}, }}, }, ] }){  P105(filter:{_and : [ { _id:{eq:"http://www.wikidata.org/entity/Q7432"}, }, ] }){  _id,  },  P225{  _id,  },  }'.
 
 test(parse_complex_path) :-
     parse_path("((<http://www.wikidata.org/prop/direct/P279>/((<http://www.wikidata.org/prop/direct/P279>)*|(<http://www.wikidata.org/prop/direct/P31>)*))|(<http://www.wikidata.org/prop/direct/P31>/((<http://www.wikidata.org/prop/direct/P279>)*|(<http://www.wikidata.org/prop/direct/P31>)*)))", Path),
-    Path = group(
-               (
-                   group(( p('http://www.wikidata.org/prop/direct/P279'),
-						   group(( star(group(p('http://www.wikidata.org/prop/direct/P279'))) '|'
-								   star(group(p('http://www.wikidata.org/prop/direct/P31')))
-							     ))
-						 )) '|'
-				   group(( p('http://www.wikidata.org/prop/direct/P31'),
-						   group(( star(group(p('http://www.wikidata.org/prop/direct/P279'))) '|'
-								   star(group(p('http://www.wikidata.org/prop/direct/P31')))
-							     ))
-						 ))
-			   )),
+    Path = (p('http://www.wikidata.org/prop/direct/P279'),
+            (star(p('http://www.wikidata.org/prop/direct/P279'))|
+             star(p('http://www.wikidata.org/prop/direct/P31')))|
+            p('http://www.wikidata.org/prop/direct/P31'),
+            (star(p('http://www.wikidata.org/prop/direct/P279'))| star(p('http://www.wikidata.org/prop/direct/P31')))),
     path_to_woql(Path, WOQL),
 
     WOQL = _{ '@type':"PathOr",
@@ -630,5 +726,25 @@ test(optional3_woql) :-
 					 }
 				  ]
 			}.
+
+test(negate_simple_path) :-
+    P = ((star(n('http://www.wikidata.org/prop/direct/P279'))| star(n('http://www.wikidata.org/prop/direct/P31'))), n('http://www.wikidata.org/prop/direct/P279')),
+    Neg = (p('http://www.wikidata.org/prop/direct/P279'), (star(p('http://www.wikidata.org/prop/direct/P279'))| star(p('http://www.wikidata.org/prop/direct/P31')))),
+    negate(Neg, P),
+    negate(P, Neg).
+
+test(simple_negation_normal_path) :-
+    P = neg(((star(n('http://www.wikidata.org/prop/direct/P279'))
+              | star(n('http://www.wikidata.org/prop/direct/P31'))),
+             n('http://www.wikidata.org/prop/direct/P279'))),
+    negation_normal_form(P, Norm),
+    Norm = (p('http://www.wikidata.org/prop/direct/P279'),
+            (star(p('http://www.wikidata.org/prop/direct/P279'))
+             | star(p('http://www.wikidata.org/prop/direct/P31')))).
+
+test(triple_negation_normal_path) :-
+    P = neg(neg(neg(p('http://www.wikidata.org/prop/direct/P279')))),
+    negation_normal_form(P, Norm),
+    Norm = n('http://www.wikidata.org/prop/direct/P279').
 
 :- end_tests(sparql_pattern_match).
