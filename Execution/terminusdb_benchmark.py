@@ -41,9 +41,12 @@ for gf in GRAPHQL_FILES:
 client = Client("http://localhost:6363/")
 client.connect(db="wdbench")
 
-WOQL_FILES=["Queries/WOQL/single_bgps.txt",
-            "Queries/WOQL/multiple_bgps.txt",
+WOQL_FILES=[#"Queries/WOQL/multiple_bgps.txt",
             "Queries/WOQL/paths.txt"]
+
+#WOQL_FILES=["Queries/WOQL/single_bgps.txt",
+#            "Queries/WOQL/multiple_bgps.txt",
+#            "Queries/WOQL/paths.txt"]
 for wf in WOQL_FILES:
     with open(wf, 'r') as qf:
         with open(f"{wf}.times",'w') as tf:
