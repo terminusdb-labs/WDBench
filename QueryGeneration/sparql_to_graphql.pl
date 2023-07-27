@@ -396,6 +396,8 @@ ast_filter(Ast, Filter) :-
             ->  ast_filter(Node, SubFilter),
                 Pair = P-SubFilter
             )
+        ;   print_term(Ast, []),
+            fail
         ),
         Filter
     ).
@@ -746,5 +748,13 @@ test(triple_negation_normal_path) :-
     P = neg(neg(neg(p('http://www.wikidata.org/prop/direct/P279')))),
     negation_normal_form(P, Norm),
     Norm = n('http://www.wikidata.org/prop/direct/P279').
+
+test(single_bgp_3_graphql) :-
+    Query = '<http://www.wikidata.org/entity/Q1236511> <http://www.wikidata.org/prop/direct/P31> ?x1 . ',
+    sparql_ast(Query, Ast),
+    sparql_to_graphql:ast_graphql(Ast, GraphQL),
+    print_term(GraphQL, []),
+    render_graphql(GraphQL, Rendered),
+    print_term(Rendered, []).
 
 :- end_tests(sparql_pattern_match).
