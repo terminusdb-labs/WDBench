@@ -321,7 +321,9 @@ sparql_ast(Query, Ast) :-
     sparql_edges(Query, Edges),
     Edges = [edge(Root, _, _, _)|_],
     visit_edges(Root, Edges, Dict_1),
-    visit_var_children(Dict_1, Edges, Ast),
+    put_dict(_{'_id': Root}, Dict_1, Dict_2),
+    print_term(Dict_2, []),
+    visit_var_children(Dict_2, Edges, Ast),
     disconnected_edges(Edges, Disconnecteds),
     (   length(Disconnecteds, 0)
     ->  true
@@ -351,7 +353,7 @@ render_filters_([P-Filter|Filters], [Rendered|Rendered_Filters]) :-
     ->  render_filters_(Filter, Result),
         atomic_list_concat(Result, Result_Atom),
         format(atom(Rendered), ' ~w:{someHave:{~w}}, ', [P, Result_Atom])
-    ;   format(atom(Rendered), ' ~w:{eq:"~w"}, ', [P, Filter])
+    ;   format(atom(Rendered), ' ~w:"~w", ', [P, Filter])
     ),
     render_filters_(Filters, Rendered_Filters).
 
@@ -388,13 +390,17 @@ ast_filter(Ast, Filter) :-
     findall(
         Pair,
         (   get_dict(Prop, Ast, Destination),
-            destination(Destination, Direction, Child),
-            create_graphql_propname(Prop, Direction, P),
-            (   Child = node(Node)
-            ->  Pair = P-['_id'-Node]
-            ;   is_dict(Node)
-            ->  ast_filter(Node, SubFilter),
-                Pair = P-SubFilter
+            (   Prop = '_id'
+            ->  Destination = node(Node),
+                Pair = '_id'-Node
+            ;   destination(Destination, Direction, Child),
+                create_graphql_propname(Prop, Direction, P),
+                (   Child = node(Node)
+                ->  Pair = P-['_id'-Node]
+                ;   is_dict(Node)
+                ->  ast_filter(Node, SubFilter),
+                    Pair = P-SubFilter
+                )
             )
         ;   print_term(Ast, []),
             fail
@@ -489,7 +495,8 @@ test(sparql_ast_disconnected, [
 
 test(sparql_ast) :-
     sparql_ast('?x1 <http://www.wikidata.org/prop/direct/P105> <http://www.wikidata.org/entity/Q7432> . ?x1 <http://www.wikidata.org/prop/direct/P225> ?x2 . ', Ast),
-    Ast = _{ 'http://www.wikidata.org/prop/direct/P105':
+    Ast = _{ '_id': var('x1'),
+             'http://www.wikidata.org/prop/direct/P105':
              forward(node('http://www.wikidata.org/entity/Q7432')),
 			 'http://www.wikidata.org/prop/direct/P225':
              forward(leaf_var(x2))
@@ -513,7 +520,7 @@ test(render_graphql) :-
     sparql_to_graphql:ast_graphql(Ast, GraphQL),
     render_graphql(GraphQL, Rendered),
 
-    Rendered = 'Node(filter:{_and : [ { P105:{someHave:{ _id:{eq:"http://www.wikidata.org/entity/Q7432"}, }}, }, ] }){  P105(filter:{_and : [ { _id:{eq:"http://www.wikidata.org/entity/Q7432"}, }, ] }){  _id,  },  P225{  _id,  },  }'.
+    Rendered = 'Node(filter:{_and : [ { P105:{someHave:{ _id:"http://www.wikidata.org/entity/Q7432", }}, }, ] }){  P105(filter:{_and : [ { _id:"http://www.wikidata.org/entity/Q7432", }, ] }){  _id,  },  P225{  _id,  },  }'.
 
 test(parse_complex_path) :-
     parse_path("((<http://www.wikidata.org/prop/direct/P279>/((<http://www.wikidata.org/prop/direct/P279>)*|(<http://www.wikidata.org/prop/direct/P31>)*))|(<http://www.wikidata.org/prop/direct/P31>/((<http://www.wikidata.org/prop/direct/P279>)*|(<http://www.wikidata.org/prop/direct/P31>)*)))", Path),
