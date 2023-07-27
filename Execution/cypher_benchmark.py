@@ -13,7 +13,7 @@ LIMIT        = sys.argv[2]
 PREFIX_NAME  = sys.argv[3]
 
 ########### EDIT THIS PARAMETERS ###########
-BENCHMARK_ROOT = '/data2/benchmark'
+BENCHMARK_ROOT = '/home/ubuntu/WDBench'
 RESUME_FILE = f'{BENCHMARK_ROOT}/results/{PREFIX_NAME}_NEO4J_limit_{LIMIT}.csv'
 NEO4J_DATABSE = 'wikidata'
 ############################################

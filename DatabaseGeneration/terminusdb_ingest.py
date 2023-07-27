@@ -32,16 +32,6 @@ def init_db(schema, threads):
     #subprocess.run(f"{TERMINUSDB_COMMAND} doc insert admin/wdbench -g schema --full-replace < {schema}", shell=True)
     pass
 
-def add_types(filename):
-    with open(filename, 'r') as f:
-        with open('converted.json', 'w') as f2:
-            lines = f.readlines()
-            for line in lines:
-                parsed = json.loads(line)
-                parsed['@type'] = 'Author'
-                json.dump(parsed, f2)
-                f2.write("\n")
-
 def split_json(threads, filename):
     subprocess.run(f"split -n l/{threads} -d -a 3 {filename} Data/splits/wdbench_split", shell=True)
     subprocess.run(f'for i in `ls Data/splits/`; do cat Data/header.nt "Data/splits/$i" > "Data/splits/$i.part"; mv Data/splits/"$i.part" Data/splits/"$i"; done', shell=True)
@@ -73,25 +63,31 @@ def main():
     parser.add_argument("split", type=int)
     parser.add_argument("threads", type=int)
     args = parser.parse_args()
-    #add_types(args.file)
+    print("Initializing databases")
     #init_db(None, args.split)
-    #split_json(args.split, args.file)
+    print("Spliting")
+    split_json(args.split, args.file)
     threads = []
     args_process = [('wdbench_split' + prefix_number(x), prefix_number(x), None) for x in range(0, args.split)]
     with Pool(args.threads) as p:
         pass
-        #p.map(ingest_json, args_process)
-    print("FINISHED")
+        p.map(ingest_json, args_process)
+    print("completed partitioned import")
     dbs = ""
     for x in range(0,args.split):
-        dbs += f"admin/wdbench_{x}\n"
+        dbs += f"admin/wdbench_{x:03d}\n"
     # TODO: We have to squash all the different data products into one
     try:
         subprocess.run(f'{TERMINUSDB_COMMAND} db delete admin/wdbench')
     except:
         pass
     subprocess.run(f'{TERMINUSDB_COMMAND} db create admin/wdbench --schema=false', shell=True)
-    subprocess.run(f'{TERMINUSDB_COMMAND} concat admin/wdbench', text=True, shell=True, input=dbs)
+    print("Merging database")
+    reset_output =subprocess.run(f'{TERMINUSDB_COMMAND} concat admin/wdbench', text=True, shell=True, input=dbs, capture_output=True)
+    reset_id = reset_output.stdout.split('\n')[0]
+    subprocess.run(f'{TERMINUSDB_COMMAND} reset admin/wdbench {reset_id}', text=True, shell=True)
+    print("Loading schema")
+    subprocess.run(f'{TERMINUSDB_COMMAND} doc insert -f -g schema admin/wdbench < Data/terminusdb-schema.json', text=True, shell=True)
 
 if __name__ == '__main__':
     main()
