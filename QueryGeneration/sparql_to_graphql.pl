@@ -153,11 +153,9 @@ parse_path(Path_String, Normal) :-
     negation_normal_form(Path, Normal).
 
 path_to_woql(n(Pred), WOQL) :-
-    compress_wiki(Pred, _{'wiki' : 'http://www.wikidata.org/prop/direct/' }, Short),
-    WOQL = _{ '@type' : "InversePathPredicate", predicate: Short }.
+    WOQL = _{ '@type' : "InversePathPredicate", predicate: Pred }.
 path_to_woql(p(Pred), WOQL) :-
-    compress_wiki(Pred, _{'wiki' : 'http://www.wikidata.org/prop/direct/' }, Short),
-    WOQL = _{ '@type' : "PathPredicate", predicate: Short }.
+    WOQL = _{ '@type' : "PathPredicate", predicate: Pred }.
 path_to_woql(star(Path), WOQL) :-
     path_to_woql(Path, Inner),
     WOQL = _{ '@type' : "PathStar", star : Inner }.
@@ -327,7 +325,6 @@ sparql_ast(Query, Ast) :-
     Edges = [edge(Root, _, _, _)|_],
     visit_edges(Root, Edges, Dict_1),
     put_dict(_{'_id': Root}, Dict_1, Dict_2),
-    print_term(Dict_2, []),
     visit_var_children(Dict_2, Edges, Ast),
     disconnected_edges(Edges, Disconnecteds),
     (   length(Disconnecteds, 0)
@@ -407,8 +404,6 @@ ast_filter(Ast, Filter) :-
                     Pair = P-SubFilter
                 )
             )
-        ;   print_term(Ast, []),
-            fail
         ),
         Filter
     ).
@@ -539,17 +534,17 @@ test(parse_complex_path) :-
     WOQL = _{ '@type':"PathOr",
 	          sequence:[ _{ '@type':"PathSequence",
 					        sequence:[ _{ '@type':"PathPredicate",
-								          predicate:'P279'
+								          predicate:'http://www.wikidata.org/prop/direct/P279'
 								        },
 								       _{ '@type':"PathOr",
 								          sequence:[ _{ '@type':"PathStar",
 										                star:_{ '@type':"PathPredicate",
-											                    predicate:'P279'
+											                    predicate:'http://www.wikidata.org/prop/direct/P279'
 											                  }
 										              },
 										             _{ '@type':"PathStar",
 										                star:_{ '@type':"PathPredicate",
-											                    predicate:'P31'
+											                    predicate:'http://www.wikidata.org/prop/direct/P31'
 											                  }
 										              }
 										           ]
@@ -558,17 +553,17 @@ test(parse_complex_path) :-
 				          },
 				         _{ '@type':"PathSequence",
 					        sequence:[ _{ '@type':"PathPredicate",
-								          predicate:'P31'
+								          predicate:'http://www.wikidata.org/prop/direct/P31'
 								        },
 								       _{ '@type':"PathOr",
 								          sequence:[ _{ '@type':"PathStar",
 										                star:_{ '@type':"PathPredicate",
-											                    predicate:'P279'
+											                    predicate:'http://www.wikidata.org/prop/direct/P279'
 											                  }
 										              },
 										             _{ '@type':"PathStar",
 										                star:_{ '@type':"PathPredicate",
-											                    predicate:'P31'
+											                    predicate:'http://www.wikidata.org/prop/direct/P31'
 											                  }
 										              }
 										           ]
@@ -761,15 +756,16 @@ test(triple_negation_normal_path) :-
     negation_normal_form(P, Norm),
     Norm = n('http://www.wikidata.org/prop/direct/P279').
 
+
 test(single_bgp_3_graphql) :-
     Query = '<http://www.wikidata.org/entity/Q1236511> <http://www.wikidata.org/prop/direct/P31> ?x1 . ',
     sparql_ast(Query, Ast),
-    Ast = _{ '_id' : node(Node),
-             'http://www.wikidata.org/prop/direct/P105':forward(node('http://www.wikidata.org/entity/Q7432')),
-    print_term(Ast, []),
+    Ast = _{ '_id':node('http://www.wikidata.org/entity/Q1236511'),
+	         'http://www.wikidata.org/prop/direct/P31':forward(leaf_var(x1))
+	       },
     sparql_to_graphql:ast_graphql(Ast, GraphQL),
-    print_term(GraphQL, []),
     render_graphql(GraphQL, Rendered),
-    print_term(Rendered, []).
+    Rendered = 'Node(filter:{_and : [ { _id:"http://www.wikidata.org/entity/Q1236511", }, ] }){  wiki_P31{  _id,  },  }'.
+
 
 :- end_tests(sparql_pattern_match).
