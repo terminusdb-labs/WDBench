@@ -22,7 +22,7 @@ group_var_expression('\\?([a-zA-z][a-zA-z0-9]*)').
 :- table path_expression/1.
 path_expression(X) :-
     node_expression(NE),
-    format(atom(X), '\\^?\\(([\\^\\(\\)\\|/\\*\\+\\?]|~s)+\\)[\\*,\\+]?', [NE]).
+    format(atom(X), '\\^?\\(([\\^\\(\\)\\|/\\*\\+\\?]|~s)+\\)[\\*,\\+]?|\\^~s|~s[\\*,\\+]', [NE,NE,NE]).
 
 :- table sparql_expression/1.
 sparql_expression(X) :-
