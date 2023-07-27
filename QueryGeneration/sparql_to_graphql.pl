@@ -176,7 +176,7 @@ path_to_woql((PathA|PathB), WOQL) :-
     path_to_woql(PathA, InnerA),
     path_to_woql(PathB, InnerB),
     WOQL = _{ '@type' : "PathOr",
-              sequence : [InnerA, InnerB] }.
+              or : [InnerA, InnerB] }.
 
 subject_woql(node(N), WOQL) :-
     WOQL = _{ '@type' : "NodeValue", node: N }.
@@ -532,45 +532,45 @@ test(parse_complex_path) :-
     path_to_woql(Path, WOQL),
 
     WOQL = _{ '@type':"PathOr",
-	          sequence:[ _{ '@type':"PathSequence",
-					        sequence:[ _{ '@type':"PathPredicate",
-								          predicate:'http://www.wikidata.org/prop/direct/P279'
-								        },
-								       _{ '@type':"PathOr",
-								          sequence:[ _{ '@type':"PathStar",
-										                star:_{ '@type':"PathPredicate",
-											                    predicate:'http://www.wikidata.org/prop/direct/P279'
-											                  }
-										              },
-										             _{ '@type':"PathStar",
-										                star:_{ '@type':"PathPredicate",
-											                    predicate:'http://www.wikidata.org/prop/direct/P31'
-											                  }
-										              }
-										           ]
-								        }
-							         ]
-				          },
-				         _{ '@type':"PathSequence",
-					        sequence:[ _{ '@type':"PathPredicate",
-								          predicate:'http://www.wikidata.org/prop/direct/P31'
-								        },
-								       _{ '@type':"PathOr",
-								          sequence:[ _{ '@type':"PathStar",
-										                star:_{ '@type':"PathPredicate",
-											                    predicate:'http://www.wikidata.org/prop/direct/P279'
-											                  }
-										              },
-										             _{ '@type':"PathStar",
-										                star:_{ '@type':"PathPredicate",
-											                    predicate:'http://www.wikidata.org/prop/direct/P31'
-											                  }
-										              }
-										           ]
-								        }
-							         ]
-				          }
-				       ]
+	          or:[ _{ '@type':"PathSequence",
+					  sequence:[ _{ '@type':"PathPredicate",
+								    predicate:'http://www.wikidata.org/prop/direct/P279'
+								  },
+								 _{ '@type':"PathOr",
+								    or:[ _{ '@type':"PathStar",
+										    star:_{ '@type':"PathPredicate",
+											        predicate:'http://www.wikidata.org/prop/direct/P279'
+											      }
+										  },
+										 _{ '@type':"PathStar",
+										    star:_{ '@type':"PathPredicate",
+											        predicate:'http://www.wikidata.org/prop/direct/P31'
+											      }
+										  }
+									   ]
+								  }
+							   ]
+				    },
+				   _{ '@type':"PathSequence",
+					  sequence:[ _{ '@type':"PathPredicate",
+								    predicate:'http://www.wikidata.org/prop/direct/P31'
+								  },
+								 _{ '@type':"PathOr",
+								    or:[ _{ '@type':"PathStar",
+										    star:_{ '@type':"PathPredicate",
+											        predicate:'http://www.wikidata.org/prop/direct/P279'
+											      }
+										  },
+										 _{ '@type':"PathStar",
+										    star:_{ '@type':"PathPredicate",
+											        predicate:'http://www.wikidata.org/prop/direct/P31'
+											      }
+										  }
+									   ]
+								  }
+							   ]
+				    }
+				 ]
 	        }.
 
 test(multiple_bgp17, []) :-
