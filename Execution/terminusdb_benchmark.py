@@ -3,10 +3,13 @@ from python_graphql_client import GraphqlClient
 import csv
 import json
 import time
+from terminusdb_client import Client
+from terminusdb_client import WOQLQuery as wq
 
 GRAPHQL_ENDPOINT="http://localhost:6363/api/graphql/admin/wdbench"
-GRAPHQL_FILES=["Queries/GraphQL/single_bgps.txt",
-               "Queries/GraphQL/multiple_bgps.txt"]
+
+GRAPHQL_FILES=[] #["Queries/GraphQL/single_bgps.txt",
+                 #"Queries/GraphQL/multiple_bgps.txt"]
 
 # Instantiate the client with an endpoint.
 auth = HTTPBasicAuth('admin', 'root')
@@ -33,3 +36,26 @@ for gf in GRAPHQL_FILES:
                 else:
                     results = len(data['data']['Node'])
                     print(f"results: {results}")
+
+
+client = Client("http://localhost:6363/")
+client.connect(db="wdbench")
+
+WOQL_FILES=["Queries/WOQL/single_bgps.txt",
+            "Queries/WOQL/multiple_bgps.txt",
+            "Queries/WOQL/paths.txt"]
+for wf in WOQL_FILES:
+    with open(gf, 'r') as qf:
+        with open(f"{gf}.times",'w') as tf:
+            csvreader = csv.reader(qf)
+            csvwriter = csv.writer(tf)
+            for row in csvreader:
+                n = row[0]
+                query = json.loads(row[1])
+                print(f"running query {n}")
+                # Synchronous request
+                start_time = time.time()
+                data = client.query(query)
+                elapsed_time = int((time.time() - start_time) * 1000)
+                csvwriter.writerow((n,elapsed_time))
+                print(data)

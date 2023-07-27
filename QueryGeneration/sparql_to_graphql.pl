@@ -759,6 +759,9 @@ test(triple_negation_normal_path) :-
 test(single_bgp_3_graphql) :-
     Query = '<http://www.wikidata.org/entity/Q1236511> <http://www.wikidata.org/prop/direct/P31> ?x1 . ',
     sparql_ast(Query, Ast),
+    Ast = _{ '_id' : node(Node),
+             'http://www.wikidata.org/prop/direct/P105':forward(node('http://www.wikidata.org/entity/Q7432')),
+    print_term(Ast, []),
     sparql_to_graphql:ast_graphql(Ast, GraphQL),
     print_term(GraphQL, []),
     render_graphql(GraphQL, Rendered),
