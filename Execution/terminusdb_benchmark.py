@@ -25,18 +25,18 @@ for gf in GRAPHQL_FILES:
                 n = row[0]
                 query = row[1]
                 query = "query{" + query +"}"
-                print(f"..{n}")
+                print(f".{n}")
                 # Synchronous request
                 start_time = time.time()
                 data = client.execute(query=query)
                 elapsed_time = int((time.time() - start_time) * 1000)
-                csvwriter.writerow((n,elapsed_time))
                 if 'errors' in data:
                     print(data)
                 else:
                     results = len(data['data']['Node'])
-                    print(f"results: {results}")
-
+                    csvwriter.writerow((n,elapsed_time,results))
+                    print(f"..results: {results}")
+                    tf.flush()
 
 client = Client("http://localhost:6363/")
 client.connect(db="wdbench")
@@ -45,17 +45,19 @@ WOQL_FILES=["Queries/WOQL/single_bgps.txt",
             "Queries/WOQL/multiple_bgps.txt",
             "Queries/WOQL/paths.txt"]
 for wf in WOQL_FILES:
-    with open(gf, 'r') as qf:
-        with open(f"{gf}.times",'w') as tf:
+    with open(wf, 'r') as qf:
+        with open(f"{wf}.times",'w') as tf:
             csvreader = csv.reader(qf)
             csvwriter = csv.writer(tf)
             for row in csvreader:
                 n = row[0]
                 query = json.loads(row[1])
-                print(f"running query {n}")
+                print(f".{n}")
                 # Synchronous request
                 start_time = time.time()
                 data = client.query(query)
                 elapsed_time = int((time.time() - start_time) * 1000)
-                csvwriter.writerow((n,elapsed_time))
-                print(data)
+                results = len(data['bindings'])
+                print(f"..results: {results}")
+                csvwriter.writerow((n,elapsed_time,results))
+                tf.flush()
