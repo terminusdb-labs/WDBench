@@ -381,9 +381,9 @@ render_graphql(Query, Atom) :-
 create_graphql_propname(Prop, Direction, P) :-
     compress_schema(Prop, _{'@schema' : 'http://www.wikidata.org/prop/direct/' }, Short),
     (   Direction = forward
-    ->  Short = P
+    ->  format(atom(P), "wiki_~w", [Short])
     ;   Direction = backward
-    ->  format(atom(P), '_~w_of_Node', [Short])
+    ->  format(atom(P), '_wiki_~w_of_Node', [Short])
     ).
 
 ast_filter(Ast, Filter) :-
@@ -506,13 +506,13 @@ test(ast_graphql) :-
     sparql_ast('?x1 <http://www.wikidata.org/prop/direct/P105> <http://www.wikidata.org/entity/Q7432> . ?x1 <http://www.wikidata.org/prop/direct/P225> ?x2 . ', Ast),
     sparql_to_graphql:ast_graphql(Ast, GraphQL),
 
-    GraphQL = query([ 'P105' - [ '_id' - 'http://www.wikidata.org/entity/Q7432'
+    GraphQL = query([ 'wiki_P105' - [ '_id' - 'http://www.wikidata.org/entity/Q7432'
 							  ]
 				    ],
-				    [ 'P105' - query([ '_id' - 'http://www.wikidata.org/entity/Q7432'
+				    [ 'wiki_P105' - query([ '_id' - 'http://www.wikidata.org/entity/Q7432'
 								     ],
 								     '_id'),
-					  'P225' - query([],'_id')
+					  'wiki_P225' - query([],'_id')
 				    ]).
 
 test(render_graphql) :-
@@ -520,7 +520,7 @@ test(render_graphql) :-
     sparql_to_graphql:ast_graphql(Ast, GraphQL),
     render_graphql(GraphQL, Rendered),
 
-    Rendered = 'Node(filter:{_and : [ { P105:{someHave:{ _id:"http://www.wikidata.org/entity/Q7432", }}, }, ] }){  P105(filter:{_and : [ { _id:"http://www.wikidata.org/entity/Q7432", }, ] }){  _id,  },  P225{  _id,  },  }'.
+    Rendered = 'Node(filter:{_and : [ { wiki_P105:{someHave:{ _id:"http://www.wikidata.org/entity/Q7432", }}, }, ] }){  wiki_P105(filter:{_and : [ { _id:"http://www.wikidata.org/entity/Q7432", }, ] }){  _id,  },  wiki_P225{  _id,  },  }'.
 
 test(parse_complex_path) :-
     parse_path("((<http://www.wikidata.org/prop/direct/P279>/((<http://www.wikidata.org/prop/direct/P279>)*|(<http://www.wikidata.org/prop/direct/P31>)*))|(<http://www.wikidata.org/prop/direct/P31>/((<http://www.wikidata.org/prop/direct/P279>)*|(<http://www.wikidata.org/prop/direct/P31>)*)))", Path),
