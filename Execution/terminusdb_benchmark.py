@@ -6,9 +6,24 @@ import time
 from terminusdb_client import Client
 from terminusdb_client import WOQLQuery as wq
 import signal
+import re
+
+LIMIT=100000 # Set to None if no limit is required
+
+def graphql_limit(Query):
+    if LIMIT:
+        return re.sub('^Node\(',f"Node(limit:{LIMIT},", Query)
+
+    return Query
+
+def woql_limit(Query):
+    if LIMIT:
+        return { "@type" : "Limit",
+                 "limit" : LIMIT,
+                 "query" : Query }
+    return Query
 
 GRAPHQL_ENDPOINT="http://localhost:6363/api/graphql/admin/wdbench"
-
 GRAPHQL_FILES=["Queries/GraphQL/single_bgps.txt","Queries/GraphQL/multiple_bgps.txt"]
 
 # Instantiate the client with an endpoint.
@@ -33,6 +48,7 @@ for gf in GRAPHQL_FILES:
             for row in csvreader:
                 n = row[0]
                 query = row[1]
+                query = graphql_limit(query)
                 query = "query{" + query +"}"
                 print(f".{n}")
                 # Synchronous request
@@ -68,6 +84,7 @@ for wf in WOQL_FILES:
             for row in csvreader:
                 n = row[0]
                 query = json.loads(row[1])
+                query = woql_limit(query)
                 print(f".{n}")
                 # Synchronous request
                 try:
