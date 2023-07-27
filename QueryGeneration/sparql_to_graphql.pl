@@ -8,6 +8,11 @@ compress_schema(Uri, Prefixes, Result) :-
     get_dict('@schema', Prefixes, Schema),
     atom_concat(Schema, Result, Uri).
 
+compress_wiki(Uri, Prefixes, Result) :-
+    get_dict('wiki', Prefixes, Schema),
+    atom_concat(Schema, Fragment, Uri),
+    atom_concat('wiki:', Fragment, Result).
+
 node_expression('<[^>]+>').
 group_node_expression('<([^>]+)>').
 
@@ -148,17 +153,17 @@ parse_path(Path_String, Normal) :-
     negation_normal_form(Path, Normal).
 
 path_to_woql(n(Pred), WOQL) :-
-    compress_schema(Pred, _{'@schema' : 'http://www.wikidata.org/prop/direct/' }, Short),
+    compress_wiki(Pred, _{'wiki' : 'http://www.wikidata.org/prop/direct/' }, Short),
     WOQL = _{ '@type' : "InversePathPredicate", predicate: Short }.
 path_to_woql(p(Pred), WOQL) :-
-    compress_schema(Pred, _{'@schema' : 'http://www.wikidata.org/prop/direct/' }, Short),
+    compress_wiki(Pred, _{'wiki' : 'http://www.wikidata.org/prop/direct/' }, Short),
     WOQL = _{ '@type' : "PathPredicate", predicate: Short }.
 path_to_woql(star(Path), WOQL) :-
     path_to_woql(Path, Inner),
     WOQL = _{ '@type' : "PathStar", star : Inner }.
 path_to_woql(plus(Path), WOQL) :-
     path_to_woql(Path, Inner),
-    WOQL = _{ '@type' : "PathPlus", star : Inner }.
+    WOQL = _{ '@type' : "PathPlus", plus : Inner }.
 path_to_woql(times(Path, M, N), WOQL) :-
     path_to_woql(Path, Inner),
     WOQL = _{ '@type' : "PathTimes", times : Inner, from: M, to: N }.
