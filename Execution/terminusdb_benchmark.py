@@ -23,6 +23,7 @@ def woql_limit(Query):
                  "query" : Query }
     return Query
 
+GRAPHQL_ENDPOINT="http://localhost:6363/api/graphql/admin/wdbench"
 # Instantiate the client with an endpoint.
 auth = HTTPBasicAuth('admin', 'root')
 client = GraphqlClient(endpoint=GRAPHQL_ENDPOINT,auth=auth)
@@ -36,7 +37,6 @@ def handler(signum, frame):
 
 signal.signal(signal.SIGALRM, handler)
 
-GRAPHQL_ENDPOINT="http://localhost:6363/api/graphql/admin/wdbench"
 GRAPHQL_FILES=[] #["Queries/GraphQL/single_bgps.txt","Queries/GraphQL/multiple_bgps.txt"]
 for gf in GRAPHQL_FILES:
     with open(gf, 'r') as qf:
@@ -69,6 +69,7 @@ for gf in GRAPHQL_FILES:
                     print(f"..timeout")
                     tf.flush()
                 except Exception as e:
+                    signal.alarm(0)
                     print(e)
 
 client = Client("http://localhost:6363/")
@@ -77,6 +78,7 @@ client.connect(db="wdbench")
 WOQL_FILES=["Queries/WOQL/single_bgps.txt","Queries/WOQL/multiple_bgps.txt","Queries/WOQL/paths.txt"]
 for wf in WOQL_FILES:
     with open(wf, 'r') as qf:
+        print(f"Running queries: {wf}")
         with open(f"{wf}.times",'w') as tf:
             csvreader = csv.reader(qf)
             csvwriter = csv.writer(tf)
@@ -101,4 +103,5 @@ for wf in WOQL_FILES:
                     print(f"..timeout")
                     tf.flush()
                 except Exception as e:
+                    signal.alarm(0)
                     print(e)
